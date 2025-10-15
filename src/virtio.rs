@@ -69,6 +69,8 @@ extern "C" {
         features: u32,
         flags: u32,
     ) -> i32;
+    fn krun_add_input_keyboard(ctx_id: u32) -> i32;
+    fn krun_add_input_pointing(ctx_id: u32) -> i32;
 }
 
 #[repr(u32)]
@@ -151,9 +153,9 @@ impl KrunContextSet for VirtioDeviceConfig {
             Self::Net(net) => net.krun_ctx_set(id),
             Self::Fs(fs) => fs.krun_ctx_set(id),
             Self::Serial(serial) => serial.krun_ctx_set(id),
+            Self::Input(input) => input.krun_ctx_set(id),
 
-            // virtio-input, virtio-gpu, and virtio-rng devices are currently not configured in
-            // krun.
+            // virtio-gpu and virtio-rng devices are currently not configured in krun.
             _ => Ok(()),
         }
     }
@@ -666,6 +668,25 @@ impl FromStr for InputConfig {
             "pointing" => Ok(Self::Pointing),
             _ => Err(anyhow!("unknown virtio-input argument: {key}")),
         }
+    }
+}
+
+/// Add the virtio-input device to the krun context.
+impl KrunContextSet for InputConfig {
+    unsafe fn krun_ctx_set(&self, id: u32) -> Result<(), anyhow::Error> {
+        match self {
+            Self::Keyboard => {
+                if krun_add_input_keyboard(id) < 0 {
+                    return Err(anyhow!("unable to add virtio-input keyboard device"));
+                }
+            }
+            Self::Pointing => {
+                if krun_add_input_pointing(id) < 0 {
+                    return Err(anyhow!("unable to add virtio-input pointing device"));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
