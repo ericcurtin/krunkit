@@ -25,6 +25,10 @@ The URI (address) of the RESTful service. If not specified, defaults to `none://
 
 Specify a path in which krunkit will write the PID to. The option does not provide any form of locking.
 
+- `--gui`
+
+Enable GUI display for the VM. When enabled, a window will be displayed showing the VM's graphical output. Without this flag, the VM runs in headless mode.
+
 ### Virtual Machine Resources
 
 - `--cpus`
