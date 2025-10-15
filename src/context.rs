@@ -131,8 +131,14 @@ impl TryFrom<Args> for KrunContext {
             return Err(anyhow!("unable to set krun vCPU/RAM configuration"));
         }
 
-        // Temporarily enable GPU by default
-        let virgl_flags = VIRGLRENDERER_VENUS | VIRGLRENDERER_NO_VIRGL;
+        // Configure GPU flags based on GUI mode
+        let virgl_flags = if args.gui {
+            // Enable VirGL rendering for GUI applications
+            VIRGLRENDERER_VENUS
+        } else {
+            // Disable VirGL rendering when GUI is not needed
+            VIRGLRENDERER_VENUS | VIRGLRENDERER_NO_VIRGL
+        };
         let sys = sysinfo::System::new_all();
         // Limit RAM + VRAM to 64 GB (36 bit IPA address limit) minus 2 GB (start address plus rounding).
         let rounded_mem = ((args.memory as u64) / 1024 + 1) * 1024;

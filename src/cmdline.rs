@@ -36,7 +36,7 @@ pub struct Args {
     #[arg(long = "restful-uri")]
     pub restful_uri: Option<RestfulUri>,
 
-    /// GUI option for compatibility with vfkit (ignored).
+    /// Enable GUI support by activating VirGL rendering.
     #[arg(long, default_value_t = false)]
     pub gui: bool,
 
