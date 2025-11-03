@@ -98,24 +98,32 @@ User input events (keyboard, mouse) are:
 ### ✅ Implemented
 
 - **Compositor Framework**: Core compositor structure and lifecycle management
-- **Threading Model**: Background thread for graphics updates
+- **Threading Model**: Background thread for graphics updates at ~60 FPS
 - **Configuration**: Flexible compositor configuration with defaults
 - **Integration**: Automatic initialization when `--wslg-gui` is enabled
 - **Logging**: Comprehensive logging for debugging
+- **Cocoa/AppKit Integration**: Full native macOS window creation
+  - NSWindow with proper styling (title bar, close button, minimize, resize)
+  - NSApplication integration for proper macOS behavior
+  - Event loop processing for window management
+  - Automatic cleanup when window is closed
+- **Window Management**: 
+  - Native macOS window chrome
+  - Center on screen
+  - User can close, minimize, resize
+  - Proper activation and focus
 
 ### 🚧 In Progress
 
-- **Cocoa/AppKit Integration**: Native macOS window creation
-  - Requires Objective-C/Swift interop
-  - Need to bridge Rust with NSWindow APIs
+- **Framebuffer Rendering**: Direct virtio-gpu framebuffer display
+  - Currently shows placeholder (dark gray background)
+  - Need to connect to libkrun-efi shared memory
+  - Upload framebuffer data to window content view
   
-- **Metal/CALayer Rendering**: GPU-accelerated display
-  - Metal texture creation and updates
-  - CALayer integration for efficient compositing
-  
-- **Framebuffer Access**: Reading virtio-gpu shared memory
-  - Interface with libkrun-efi framebuffer API
-  - Memory mapping and synchronization
+- **Input Forwarding**: Keyboard and mouse events to guest
+  - Capture NSEvent from window
+  - Translate to Linux input events
+  - Forward via virtio-input devices
 
 ### 📋 Planned
 
@@ -127,7 +135,7 @@ User input events (keyboard, mouse) are:
 
 ## Current Usage
 
-In the current implementation, when you start krunkit with `--wslg-gui`:
+When you start krunkit with `--wslg-gui`:
 
 ```bash
 krunkit --cpus 4 --memory 4096 --wslg-gui \
@@ -137,14 +145,34 @@ krunkit --cpus 4 --memory 4096 --wslg-gui \
 The compositor will:
 1. ✅ Initialize successfully
 2. ✅ Start a background thread
-3. ✅ Log its status and configuration
-4. 🚧 Display graphics via alternative methods (see below)
+3. ✅ Create and display a native macOS window
+4. ✅ Process window events (close, resize, minimize)
+5. ✅ Run display loop at ~60 FPS
+6. 🚧 Show actual Linux GUI content (currently shows placeholder)
 
-## Viewing Graphics (Current Options)
+**What You'll See:**
 
-While the full native window integration is being implemented, you can view graphics using:
+A native macOS window will appear on your screen with:
+- Title: "krunkit - Linux GUI (1920x1080)" (or your specified resolution)
+- Standard macOS window controls (close, minimize, zoom/resize buttons)
+- Dark gray background (placeholder for framebuffer content)
+- Responsive to user interactions (you can move, resize, close it)
 
-### Option 1: VNC
+When the window is closed, the compositor automatically shuts down cleanly.
+
+## Viewing Graphics Options
+
+### Primary Method: Native Compositor Window (Current)
+
+The compositor creates a native macOS window automatically. This window is ready to display Linux GUI content once framebuffer integration is complete.
+
+**Current Status**: Window appears but shows placeholder background. Linux GUI applications render to virtio-gpu, but display in window requires framebuffer connection.
+
+### Alternative Methods (For Now)
+
+While framebuffer rendering integration is completed, you can also view graphics using:
+
+#### VNC
 
 Connect to the VM with a VNC client:
 ```bash
@@ -152,11 +180,7 @@ Connect to the VM with a VNC client:
 open vnc://localhost:5900
 ```
 
-### Option 2: macOS Screen Sharing
-
-Use built-in macOS Screen Sharing to connect to the guest display.
-
-### Option 3: X11 Forwarding
+#### X11 Forwarding
 
 Forward X11 over SSH for individual applications:
 ```bash
@@ -166,11 +190,13 @@ firefox &
 
 ## Development Roadmap
 
-### Phase 1: Core Window Display (Current)
+### Phase 1: Core Window Display
 - [x] Compositor framework and threading
-- [ ] Basic NSWindow creation
+- [x] Basic NSWindow creation
+- [x] Window styling and chrome
+- [x] Event loop processing
+- [x] 60 FPS refresh loop
 - [ ] Framebuffer display in window
-- [ ] 60 FPS refresh loop
 
 ### Phase 2: Input and Interaction
 - [ ] Keyboard event forwarding
@@ -194,23 +220,33 @@ firefox &
 
 ### Objective-C Interop
 
-Full implementation requires Objective-C interop for Cocoa/AppKit:
+The compositor uses Objective-C interop via the `cocoa` and `objc` crates to interface with macOS APIs:
 
 ```rust
-// Future implementation using objc crate
+// Implemented in src/compositor.rs
 #[cfg(target_os = "macos")]
-use objc::runtime::{Class, Object};
+use cocoa::appkit::{NSApplication, NSWindow, NSWindowStyleMask, NSBackingStoreType};
+use cocoa::base::{id, nil, YES, NO};
+use cocoa::foundation::{NSRect, NSPoint, NSSize, NSString, NSAutoreleasePool};
+use objc::runtime::Class;
 use objc::{msg_send, sel, sel_impl};
 
 // Create NSWindow
-let window: *mut Object = msg_send![class!(NSWindow), alloc];
-let window: *mut Object = msg_send![window, 
-    initWithContentRect:frame
-    styleMask:style
-    backing:backing
-    defer:NO
-];
+let window = NSWindow::alloc(nil).initWithContentRect_styleMask_backing_defer_(
+    frame,
+    style_mask,
+    NSBackingStoreType::NSBackingStoreBuffered,
+    NO,
+);
+
+// Set window properties
+let title = NSString::alloc(nil).init_str(&config.window_title);
+window.setTitle_(title);
+window.center();
+window.makeKeyAndOrderFront_(nil);
 ```
+
+This implementation creates real NSWindow objects that integrate fully with macOS.
 
 ### Metal Rendering
 

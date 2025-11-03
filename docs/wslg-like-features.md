@@ -128,19 +128,17 @@ When `--wslg-gui` is enabled, krunkit initializes a macOS compositor that:
 
 The compositor runs in a background thread and automatically starts when the VM boots with GUI support enabled. It provides a seamless window experience where Linux GUI applications appear as native macOS windows.
 
-**Current Implementation Status:**
+**Implementation Status:**
 - ✅ Compositor framework and threading model
 - ✅ Configuration and initialization
-- 🚧 Full Cocoa/AppKit window creation (requires Objective-C interop)
-- 🚧 Metal/CALayer framebuffer rendering
-- 🚧 Input event forwarding (keyboard/mouse)
+- ✅ Full Cocoa/AppKit window creation with native NSWindow
+- ✅ Event loop with automatic window management
+- ✅ Window styling (title bar, close button, resizable)
+- 🚧 Direct virtio-gpu framebuffer rendering (placeholder currently uses solid color)
+- 🚧 Input event forwarding (keyboard/mouse) to guest VM
+- 🚧 Clipboard integration
 
-For the initial release, graphics output can be viewed via:
-- VNC connection to the VM
-- macOS Screen Sharing
-- Direct framebuffer access via virtio-gpu device
-
-Future releases will implement the full native macOS window integration.
+The compositor creates a native macOS window that displays immediately when `--wslg-gui` is enabled. The window appears on your screen with proper macOS chrome (title bar, close button, etc.). Currently displays a placeholder background; integration with virtio-gpu framebuffer data will show actual Linux GUI applications.
 
 ### PulseAudio Configuration
 

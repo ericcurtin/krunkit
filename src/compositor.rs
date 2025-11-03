@@ -8,8 +8,20 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
+
+#[cfg(target_os = "macos")]
+use cocoa::appkit::{NSApplication, NSWindow, NSWindowStyleMask, NSBackingStoreType, NSView};
+#[cfg(target_os = "macos")]
+use cocoa::base::{id, nil, YES, NO};
+#[cfg(target_os = "macos")]
+use cocoa::foundation::{NSRect, NSPoint, NSSize, NSString, NSAutoreleasePool};
+#[cfg(target_os = "macos")]
+use objc::runtime::Class;
+#[cfg(target_os = "macos")]
+use objc::{msg_send, sel, sel_impl};
 
 /// Configuration for the macOS compositor
 #[derive(Clone, Debug)]
@@ -117,28 +129,111 @@ impl Compositor {
         log::info!("Starting macOS compositor: {}x{}", config.width, config.height);
         log::info!("Window title: {}", config.window_title);
         
-        // Note: Full implementation would use Cocoa/AppKit to create an NSWindow
-        // and CALayer/Metal to display the framebuffer content.
-        // This requires Objective-C interop which is beyond the scope of this
-        // initial implementation.
-        
-        // For now, log that the compositor is ready
-        log::info!("Compositor thread started");
-        log::info!("To display graphics, connect a VNC viewer or use macOS screen sharing");
-        log::info!("The virtio-gpu device will render to shared memory");
-        
-        // Keep the thread running while compositor is active
-        while *running.lock().unwrap() {
-            std::thread::sleep(std::time::Duration::from_millis(16)); // ~60 FPS
+        unsafe {
+            // Create autorelease pool for memory management
+            let pool = NSAutoreleasePool::new(nil);
             
-            // In a full implementation, this loop would:
-            // 1. Read from virtio-gpu shared memory / framebuffer
-            // 2. Upload the texture to Metal/CALayer
-            // 3. Trigger a display update
+            // Initialize NSApplication (required for window creation)
+            let app = NSApplication::sharedApplication(nil);
+            app.setActivationPolicy_(cocoa::appkit::NSApplicationActivationPolicyRegular);
+            
+            // Create window frame
+            let frame = NSRect::new(
+                NSPoint::new(100.0, 100.0),
+                NSSize::new(config.width as f64, config.height as f64),
+            );
+            
+            // Window style mask: titled, closable, miniaturizable, resizable
+            let style_mask = NSWindowStyleMask::NSTitledWindowMask
+                | NSWindowStyleMask::NSClosableWindowMask
+                | NSWindowStyleMask::NSMiniaturizableWindowMask
+                | NSWindowStyleMask::NSResizableWindowMask;
+            
+            // Create the window
+            let window = NSWindow::alloc(nil).initWithContentRect_styleMask_backing_defer_(
+                frame,
+                style_mask,
+                NSBackingStoreType::NSBackingStoreBuffered,
+                NO,
+            );
+            
+            if window == nil {
+                return Err(anyhow!("Failed to create NSWindow"));
+            }
+            
+            // Set window title
+            let title = NSString::alloc(nil).init_str(&config.window_title);
+            window.setTitle_(title);
+            
+            // Center the window on screen
+            window.center();
+            
+            // Create content view for rendering
+            let content_view = window.contentView();
+            
+            // Set background color (dark gray for now, will show framebuffer later)
+            let color_class = Class::get("NSColor").ok_or_else(|| anyhow!("NSColor class not found"))?;
+            let dark_gray: id = msg_send![color_class, darkGrayColor];
+            let _: () = msg_send![content_view, setWantsLayer: YES];
+            let layer: id = msg_send![content_view, layer];
+            let _: () = msg_send![layer, setBackgroundColor: dark_gray];
+            
+            // Make window visible
+            window.makeKeyAndOrderFront_(nil);
+            app.activateIgnoringOtherApps_(YES);
+            
+            log::info!("Compositor window created and displayed");
+            log::info!("Window is now visible on macOS");
+            
+            // Create a simple framebuffer simulation (placeholder for actual virtio-gpu data)
+            // In production, this would read from shared memory
+            let mut frame_count: u64 = 0;
+            
+            // Main event loop - process events and update display
+            while *running.lock().unwrap() {
+                // Process pending events
+                let event_mask = cocoa::appkit::NSAnyEventMask;
+                let distant_past: id = msg_send![Class::get("NSDate").unwrap(), distantPast];
+                let event: id = msg_send![
+                    app,
+                    nextEventMatchingMask: event_mask
+                    untilDate: distant_past
+                    inMode: cocoa::appkit::NSDefaultRunLoopMode
+                    dequeue: YES
+                ];
+                
+                if event != nil {
+                    let _: () = msg_send![app, sendEvent: event];
+                }
+                
+                // Update frame counter and display
+                frame_count += 1;
+                if frame_count % 60 == 0 {
+                    log::debug!("Compositor: {} frames rendered", frame_count);
+                }
+                
+                // In production: Read from virtio-gpu framebuffer and update window content
+                // For now, the window displays with the dark gray background
+                
+                // Sleep to maintain ~60 FPS
+                thread::sleep(Duration::from_millis(16));
+                
+                // Check if window was closed
+                let is_visible: bool = msg_send![window, isVisible];
+                if !is_visible {
+                    log::info!("Window closed by user, stopping compositor");
+                    *running.lock().unwrap() = false;
+                    break;
+                }
+            }
+            
+            // Cleanup
+            let _: () = msg_send![window, close];
+            let _: () = msg_send![pool, drain];
+            
+            log::info!("Compositor thread stopped");
+            Ok(())
         }
-        
-        log::info!("Compositor thread stopped");
-        Ok(())
     }
     
     /// Compositor thread for non-macOS platforms (stub)
