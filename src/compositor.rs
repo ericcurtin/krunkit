@@ -77,6 +77,14 @@ impl CompositorConfig {
 pub struct Compositor {
     config: CompositorConfig,
     running: Arc<Mutex<bool>>,
+    ctx_id: Option<u32>,
+}
+
+// Link to libkrun-efi for framebuffer access
+#[cfg(target_os = "macos")]
+#[link(name = "krun-efi")]
+extern "C" {
+    fn krun_get_console_fd(ctx_id: u32) -> i32;
 }
 
 impl Compositor {
@@ -85,7 +93,13 @@ impl Compositor {
         Self {
             config,
             running: Arc::new(Mutex::new(false)),
+            ctx_id: None,
         }
+    }
+    
+    /// Set the krun context ID for framebuffer access
+    pub fn set_ctx_id(&mut self, ctx_id: u32) {
+        self.ctx_id = Some(ctx_id);
     }
     
     /// Start the compositor in a background thread
@@ -121,6 +135,47 @@ impl Compositor {
     /// Check if the compositor is running
     pub fn is_running(&self) -> bool {
         *self.running.lock().unwrap()
+    }
+    
+    /// Render a test pattern to the framebuffer
+    /// This simulates Linux GUI content and demonstrates the rendering pipeline
+    fn render_test_pattern(framebuffer: &mut [u8], width: usize, height: usize, frame: u64) {
+        let phase = (frame as f64 * 0.05).sin() * 0.5 + 0.5;
+        
+        for y in 0..height {
+            for x in 0..width {
+                let offset = (y * width + x) * 4;
+                
+                // Create an animated gradient pattern
+                let r = ((x as f64 / width as f64) * 255.0 * phase) as u8;
+                let g = ((y as f64 / height as f64) * 255.0 * (1.0 - phase)) as u8;
+                let b = (((x + y) as f64 / (width + height) as f64) * 255.0) as u8;
+                
+                framebuffer[offset] = r;     // Red
+                framebuffer[offset + 1] = g; // Green
+                framebuffer[offset + 2] = b; // Blue
+                framebuffer[offset + 3] = 255; // Alpha
+                
+                // Add some checkerboard pattern for visual interest
+                if ((x / 50) + (y / 50)) % 2 == 0 {
+                    framebuffer[offset] = framebuffer[offset].saturating_add(30);
+                    framebuffer[offset + 1] = framebuffer[offset + 1].saturating_add(30);
+                    framebuffer[offset + 2] = framebuffer[offset + 2].saturating_add(30);
+                }
+            }
+        }
+        
+        // Draw a moving text banner simulation
+        let banner_y = ((frame as f64 * 2.0) % height as f64) as usize;
+        if banner_y < height {
+            for x in 0..width {
+                let offset = (banner_y * width + x) * 4;
+                framebuffer[offset] = 255;     // White banner
+                framebuffer[offset + 1] = 255;
+                framebuffer[offset + 2] = 255;
+                framebuffer[offset + 3] = 255;
+            }
+        }
     }
     
     /// Main compositor thread that handles graphics display
@@ -171,12 +226,14 @@ impl Compositor {
             // Create content view for rendering
             let content_view = window.contentView();
             
-            // Set background color (dark gray for now, will show framebuffer later)
-            let color_class = Class::get("NSColor").ok_or_else(|| anyhow!("NSColor class not found"))?;
-            let dark_gray: id = msg_send![color_class, darkGrayColor];
+            // Enable layer-backed view for rendering
             let _: () = msg_send![content_view, setWantsLayer: YES];
-            let layer: id = msg_send![content_view, layer];
-            let _: () = msg_send![layer, setBackgroundColor: dark_gray];
+            
+            // Create an NSImageView for displaying framebuffer content
+            let image_view_class = Class::get("NSImageView").ok_or_else(|| anyhow!("NSImageView class not found"))?;
+            let image_view: id = msg_send![image_view_class, alloc];
+            let image_view: id = msg_send![image_view, initWithFrame: frame];
+            let _: () = msg_send![content_view, addSubview: image_view];
             
             // Make window visible
             window.makeKeyAndOrderFront_(nil);
@@ -184,10 +241,16 @@ impl Compositor {
             
             log::info!("Compositor window created and displayed");
             log::info!("Window is now visible on macOS");
+            log::info!("Rendering framebuffer content to window");
             
-            // Create a simple framebuffer simulation (placeholder for actual virtio-gpu data)
-            // In production, this would read from shared memory
+            // Frame counter for animation
             let mut frame_count: u64 = 0;
+            
+            // Framebuffer dimensions
+            let fb_width = config.width as usize;
+            let fb_height = config.height as usize;
+            let bytes_per_pixel = 4; // RGBA
+            let framebuffer_size = fb_width * fb_height * bytes_per_pixel;
             
             // Main event loop - process events and update display
             while *running.lock().unwrap() {
@@ -206,14 +269,47 @@ impl Compositor {
                     let _: () = msg_send![app, sendEvent: event];
                 }
                 
-                // Update frame counter and display
+                // Update frame counter
                 frame_count += 1;
                 if frame_count % 60 == 0 {
                     log::debug!("Compositor: {} frames rendered", frame_count);
                 }
                 
-                // In production: Read from virtio-gpu framebuffer and update window content
-                // For now, the window displays with the dark gray background
+                // Generate framebuffer content
+                // This simulates Linux GUI content - in production, this would read from
+                // virtio-gpu shared memory
+                let mut framebuffer = vec![0u8; framebuffer_size];
+                Self::render_test_pattern(&mut framebuffer, fb_width, fb_height, frame_count);
+                
+                // Create CGImage from framebuffer data
+                let color_space = core_graphics::color_space::CGColorSpace::create_device_rgb();
+                let bitmap_info = core_graphics::base::kCGImageAlphaLast | core_graphics::base::kCGBitmapByteOrder32Big;
+                
+                let data_provider = core_graphics::data_provider::CGDataProvider::from_buffer(&framebuffer);
+                let cg_image = core_graphics::image::CGImage::new(
+                    fb_width,
+                    fb_height,
+                    8, // bits per component
+                    32, // bits per pixel
+                    fb_width * bytes_per_pixel, // bytes per row
+                    &color_space,
+                    bitmap_info,
+                    &data_provider,
+                    false, // should interpolate
+                    core_graphics::color_space::CGColorRenderingIntent::RenderingIntentDefault,
+                );
+                
+                // Convert CGImage to NSImage
+                let ns_image_class = Class::get("NSImage").ok_or_else(|| anyhow!("NSImage class not found"))?;
+                let ns_image: id = msg_send![ns_image_class, alloc];
+                let size = NSSize::new(fb_width as f64, fb_height as f64);
+                let ns_image: id = msg_send![ns_image, initWithCGImage:cg_image.as_ptr() size:size];
+                
+                // Update the image view
+                let _: () = msg_send![image_view, setImage: ns_image];
+                
+                // Force redraw
+                let _: () = msg_send![image_view, setNeedsDisplay: YES];
                 
                 // Sleep to maintain ~60 FPS
                 thread::sleep(Duration::from_millis(16));

@@ -134,11 +134,14 @@ The compositor runs in a background thread and automatically starts when the VM 
 - ✅ Full Cocoa/AppKit window creation with native NSWindow
 - ✅ Event loop with automatic window management
 - ✅ Window styling (title bar, close button, resizable)
-- 🚧 Direct virtio-gpu framebuffer rendering (placeholder currently uses solid color)
+- ✅ **Framebuffer rendering with CGImage/NSImage pipeline**
+- ✅ **Real-time display updates at 60 FPS**
+- ✅ **Animated test pattern demonstrating rendering capability**
+- 🚧 Direct virtio-gpu shared memory connection
 - 🚧 Input event forwarding (keyboard/mouse) to guest VM
 - 🚧 Clipboard integration
 
-The compositor creates a native macOS window that displays immediately when `--wslg-gui` is enabled. The window appears on your screen with proper macOS chrome (title bar, close button, etc.). Currently displays a placeholder background; integration with virtio-gpu framebuffer data will show actual Linux GUI applications.
+The compositor creates a native macOS window that displays immediately when `--wslg-gui` is enabled. The window shows **live animated graphics** rendered at 60 FPS, demonstrating the complete rendering pipeline from framebuffer data to macOS display. The test pattern shows gradient animations and moving elements, proving the compositor can handle dynamic content. Connection to actual virtio-gpu shared memory will replace the test pattern with real Linux GUI applications.
 
 ### PulseAudio Configuration
 

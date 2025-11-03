@@ -162,14 +162,15 @@ impl TryFrom<Args> for KrunContext {
         }
 
         // Initialize compositor if WSLg GUI mode is enabled
-        let compositor = if args.wslg_gui {
+        let mut compositor = if args.wslg_gui {
             let width = args.wslg_gpu_width;
             let height = args.wslg_gpu_height;
             log::info!("Initializing macOS compositor for WSLg GUI mode: {}x{}", width, height);
             
             match crate::compositor::create_wslg_compositor(width, height) {
-                Ok(comp) => {
-                    log::info!("Compositor initialized successfully");
+                Ok(mut comp) => {
+                    comp.set_ctx_id(id);
+                    log::info!("Compositor initialized successfully with context ID {}", id);
                     Some(comp)
                 }
                 Err(e) => {
