@@ -7,7 +7,13 @@
 
 set -e
 
+# Configuration - can be overridden via environment variables
+WESTON_WIDTH="${WESTON_WIDTH:-1920}"
+WESTON_HEIGHT="${WESTON_HEIGHT:-1080}"
+
 echo "Setting up WSLg-like environment..."
+echo "Display resolution: ${WESTON_WIDTH}x${WESTON_HEIGHT}"
+echo "Note: Set WESTON_WIDTH and WESTON_HEIGHT environment variables to change resolution"
 
 # Detect package manager
 if command -v apt-get &> /dev/null; then
@@ -76,17 +82,21 @@ case $PKG_MANAGER in
         ;;
 esac
 
+# Get current user's UID for proper directory permissions
+USER_UID=$(id -u)
+RUNTIME_DIR="/run/user/${USER_UID}"
+
 # Create runtime directory
-mkdir -p /run/user/1000
-chmod 700 /run/user/1000
+mkdir -p "${RUNTIME_DIR}"
+chmod 700 "${RUNTIME_DIR}"
 
 # Create PulseAudio directory
-mkdir -p /run/user/1000/pulse
-chmod 700 /run/user/1000/pulse
+mkdir -p "${RUNTIME_DIR}/pulse"
+chmod 700 "${RUNTIME_DIR}/pulse"
 
 # Create Weston configuration
 mkdir -p ~/.config
-cat > ~/.config/weston.ini <<'EOF'
+cat > ~/.config/weston.ini <<EOF
 [core]
 backend=headless-backend.so
 renderer=pixman
@@ -96,7 +106,7 @@ panel-position=none
 
 [output]
 name=headless
-mode=1920x1080
+mode=${WESTON_WIDTH}x${WESTON_HEIGHT}
 
 [screen-share]
 command=/usr/bin/weston --backend=rdp-backend.so --no-clients-resize
@@ -105,15 +115,15 @@ EOF
 # Create systemd user directory
 mkdir -p ~/.config/systemd/user
 
-# Create Weston systemd service
-cat > ~/.config/systemd/user/weston.service <<'EOF'
+# Create Weston systemd service with dynamic runtime directory
+cat > ~/.config/systemd/user/weston.service <<EOF
 [Unit]
 Description=Weston Wayland Compositor
 After=dbus.service
 
 [Service]
 Type=notify
-Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XDG_RUNTIME_DIR=${RUNTIME_DIR}
 Environment=WAYLAND_DISPLAY=wayland-0
 ExecStart=/usr/bin/weston --logger-scopes=log,protocol
 Restart=on-failure
@@ -123,15 +133,15 @@ RestartSec=5
 WantedBy=default.target
 EOF
 
-# Create PulseAudio systemd service
-cat > ~/.config/systemd/user/pulseaudio.service <<'EOF'
+# Create PulseAudio systemd service with dynamic runtime directory
+cat > ~/.config/systemd/user/pulseaudio.service <<EOF
 [Unit]
 Description=PulseAudio Sound Server
 After=dbus.service
 
 [Service]
 Type=notify
-Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XDG_RUNTIME_DIR=${RUNTIME_DIR}
 ExecStart=/usr/bin/pulseaudio --daemonize=no --log-target=stderr
 Restart=on-failure
 RestartSec=5
@@ -141,13 +151,13 @@ WantedBy=default.target
 EOF
 
 # Set up environment variables in profile
-cat >> ~/.bashrc <<'EOF'
+cat >> ~/.bashrc <<EOF
 
 # WSLg-like environment variables
-export XDG_RUNTIME_DIR=/run/user/1000
+export XDG_RUNTIME_DIR=${RUNTIME_DIR}
 export WAYLAND_DISPLAY=wayland-0
 export XDG_SESSION_TYPE=wayland
-export PULSE_SERVER=unix:/run/user/1000/pulse/native
+export PULSE_SERVER=unix:${RUNTIME_DIR}/pulse/native
 export GDK_BACKEND=wayland
 export QT_QPA_PLATFORM=wayland
 export SDL_VIDEODRIVER=wayland

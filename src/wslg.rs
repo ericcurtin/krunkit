@@ -7,6 +7,12 @@
 
 use std::path::PathBuf;
 
+/// Default GPU width in pixels for WSLg GUI mode
+pub const DEFAULT_GPU_WIDTH: u32 = 1920;
+
+/// Default GPU height in pixels for WSLg GUI mode
+pub const DEFAULT_GPU_HEIGHT: u32 = 1080;
+
 /// Configuration for WSLg-like features
 #[derive(Clone, Debug, Default)]
 pub struct WslgConfig {
@@ -74,8 +80,11 @@ impl WslgConfig {
                     devices.push(format!("virtio-gpu,width={},height={}", width, height));
                 }
                 _ => {
-                    // Default to 1920x1080 if dimensions not specified
-                    devices.push("virtio-gpu,width=1920,height=1080".to_string());
+                    // Use default resolution if dimensions not specified
+                    devices.push(format!(
+                        "virtio-gpu,width={},height={}",
+                        DEFAULT_GPU_WIDTH, DEFAULT_GPU_HEIGHT
+                    ));
                 }
             }
 
