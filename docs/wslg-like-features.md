@@ -115,7 +115,32 @@ sudo pacman -S gedit gimp firefox nautilus
 
 ### Wayland/Weston Setup
 
-The Weston compositor is configured to run in headless mode and forward rendering through the virtio-gpu device. Graphics are then composited by the macOS host.
+The Weston compositor is configured to run in headless mode and forward rendering through the virtio-gpu device. Graphics are then composited by the macOS host through the krunkit compositor.
+
+### macOS Compositor
+
+When `--wslg-gui` is enabled, krunkit initializes a macOS compositor that:
+
+1. **Receives Graphics Data**: Reads from the virtio-gpu shared memory framebuffer
+2. **Creates Display Window**: Opens a native macOS window to display the graphics
+3. **Continuous Updates**: Runs at ~60 FPS to refresh the display with new frames
+4. **GPU Acceleration**: Leverages Metal/CALayer for efficient rendering on macOS
+
+The compositor runs in a background thread and automatically starts when the VM boots with GUI support enabled. It provides a seamless window experience where Linux GUI applications appear as native macOS windows.
+
+**Current Implementation Status:**
+- ✅ Compositor framework and threading model
+- ✅ Configuration and initialization
+- 🚧 Full Cocoa/AppKit window creation (requires Objective-C interop)
+- 🚧 Metal/CALayer framebuffer rendering
+- 🚧 Input event forwarding (keyboard/mouse)
+
+For the initial release, graphics output can be viewed via:
+- VNC connection to the VM
+- macOS Screen Sharing
+- Direct framebuffer access via virtio-gpu device
+
+Future releases will implement the full native macOS window integration.
 
 ### PulseAudio Configuration
 
@@ -153,9 +178,10 @@ GPU acceleration is provided through:
 While inspired by WSLg, this implementation has some key differences:
 
 1. **Display Protocol**: Uses native Wayland/Weston instead of RDP
-2. **Window Management**: Relies on virtio-gpu compositing instead of RAIL/VAIL
+2. **Window Management**: Uses macOS compositor with virtio-gpu instead of RAIL/VAIL (see [compositor.md](./compositor.md))
 3. **Integration**: macOS-specific integration instead of Windows Start Menu
 4. **Audio**: Direct PulseAudio forwarding instead of RDP audio channels
+5. **Compositor**: Custom macOS compositor for graphics display
 
 ## Building System Distro
 
@@ -164,6 +190,7 @@ For advanced users who want to customize the system distro, see [CONTRIBUTING.md
 ## Related Documentation
 
 - [Quick Start Guide](./quickstart-wslg.md) - Step-by-step setup instructions
+- [Compositor Details](./compositor.md) - Technical details on the macOS compositor
 - [WSLg Comparison](./wslg-comparison.md) - Detailed comparison with Microsoft WSLg
 - [Usage Guide](./usage.md) - Complete command-line reference
 - [Contributing](../CONTRIBUTING.md) - Build and development guidelines

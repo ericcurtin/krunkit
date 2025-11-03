@@ -58,6 +58,7 @@ This document compares Microsoft's WSLg (Windows Subsystem for Linux GUI) with k
 - Standard read-write mount
 - Single VM per instance
 - User installs Weston, PulseAudio
+- Host-side compositor for graphics display
 
 ## Feature Parity
 
