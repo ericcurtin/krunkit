@@ -68,9 +68,15 @@ impl WslgConfig {
         let mut devices = Vec::new();
 
         if self.gui_enabled {
-            // Add virtio-gpu device
-            if let (Some(width), Some(height)) = (self.gpu_width, self.gpu_height) {
-                devices.push(format!("virtio-gpu,width={},height={}", width, height));
+            // Add virtio-gpu device with resolution if specified, otherwise use defaults
+            match (self.gpu_width, self.gpu_height) {
+                (Some(width), Some(height)) => {
+                    devices.push(format!("virtio-gpu,width={},height={}", width, height));
+                }
+                _ => {
+                    // Default to 1920x1080 if dimensions not specified
+                    devices.push("virtio-gpu,width=1920,height=1080".to_string());
+                }
             }
 
             // Add virtio-input devices for keyboard and mouse
@@ -125,6 +131,10 @@ impl Default for ApplicationDiscovery {
             search_paths: vec![
                 PathBuf::from("/usr/share/applications"),
                 PathBuf::from("/usr/local/share/applications"),
+                // Note: The tilde (~) in this path is not expanded by PathBuf.
+                // This is a placeholder representing the user's home directory.
+                // Applications using this should expand it manually or use
+                // environment variables like $HOME/.local/share/applications
                 PathBuf::from("~/.local/share/applications"),
             ],
         }
