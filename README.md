@@ -28,4 +28,8 @@ $ sudo make install
 
 See [`docs/usage.md`](./docs/usage.md).
 
+## WSLg-like Features
+
+krunkit now supports WSLg-like functionality for running Linux GUI applications on macOS with full desktop integration using Wayland, Weston, and PulseAudio. See [`docs/wslg-like-features.md`](./docs/wslg-like-features.md) for details.
+
 License: Apache-2.0

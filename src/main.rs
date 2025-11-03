@@ -6,6 +6,7 @@ mod cmdline;
 mod context;
 mod status;
 mod virtio;
+mod wslg;
 
 use cmdline::Args;
 use context::KrunContext;
