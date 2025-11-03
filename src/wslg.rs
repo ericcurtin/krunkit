@@ -131,11 +131,10 @@ impl Default for ApplicationDiscovery {
             search_paths: vec![
                 PathBuf::from("/usr/share/applications"),
                 PathBuf::from("/usr/local/share/applications"),
-                // Note: The tilde (~) in this path is not expanded by PathBuf.
-                // This is a placeholder representing the user's home directory.
-                // Applications using this should expand it manually or use
-                // environment variables like $HOME/.local/share/applications
-                PathBuf::from("~/.local/share/applications"),
+                // Note: User-specific paths like ~/.local/share/applications
+                // should be added by calling add_search_path() after construction,
+                // as PathBuf does not automatically expand ~ or environment variables.
+                // Use std::env::var("HOME") to construct user-specific paths.
             ],
         }
     }
