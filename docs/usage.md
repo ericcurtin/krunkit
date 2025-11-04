@@ -25,6 +25,10 @@ The URI (address) of the RESTful service. If not specified, defaults to `none://
 
 Specify a path in which krunkit will write the PID to. The option does not provide any form of locking.
 
+- `--gui`
+
+Enable GUI support by activating VirGL rendering. When this flag is set, the virtual machine will have hardware-accelerated 3D graphics support, enabling GUI applications to run properly. Without this flag, VirGL rendering is disabled to save resources for headless workloads.
+
 ### Virtual Machine Resources
 
 - `--cpus`
