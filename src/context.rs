@@ -30,6 +30,7 @@ extern "C" {
     fn krun_start_enter(ctx_id: u32) -> i32;
 }
 
+const VIRGLRENDERER_HEADLESS: u32 = 1 << 3;
 const VIRGLRENDERER_VENUS: u32 = 1 << 6;
 const VIRGLRENDERER_NO_VIRGL: u32 = 1 << 7;
 
@@ -131,8 +132,12 @@ impl TryFrom<Args> for KrunContext {
             return Err(anyhow!("unable to set krun vCPU/RAM configuration"));
         }
 
-        // Temporarily enable GPU by default
-        let virgl_flags = VIRGLRENDERER_VENUS | VIRGLRENDERER_NO_VIRGL;
+        // Configure GPU options based on the gui flag
+        let mut virgl_flags = VIRGLRENDERER_VENUS | VIRGLRENDERER_NO_VIRGL;
+        if !args.gui {
+            // If GUI is not requested, run in headless mode
+            virgl_flags |= VIRGLRENDERER_HEADLESS;
+        }
         let sys = sysinfo::System::new_all();
         // Limit RAM + VRAM to 64 GB (36 bit IPA address limit) minus 2 GB (start address plus rounding).
         let rounded_mem = ((args.memory as u64) / 1024 + 1) * 1024;

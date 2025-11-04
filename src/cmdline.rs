@@ -36,7 +36,7 @@ pub struct Args {
     #[arg(long = "restful-uri")]
     pub restful_uri: Option<RestfulUri>,
 
-    /// GUI option for compatibility with vfkit (ignored).
+    /// Enable GUI display for the VM. When enabled, a window will be displayed showing the VM's graphical output.
     #[arg(long, default_value_t = false)]
     pub gui: bool,
 
