@@ -199,6 +199,38 @@ This will share `/Users/user/shared-dir` with the guest:
 --device virtio-fs,sharedDir=/Users/user/shared-dir,mountTag=MOUNT_TAG
 ```
 
+### Input Devices
+
+The `virtio-input` option adds input devices to a virtual machine. This enables keyboard and mouse/pointing device
+emulation for GUI workloads running in the guest.
+
+#### Arguments
+
+One of the following device types must be specified:
+
+- `keyboard`: Adds a virtio-input keyboard device for keyboard emulation.
+- `pointing`: Adds a virtio-input pointing device (mouse) for pointer emulation.
+
+#### Examples
+
+This adds a virtio-input keyboard device to a virtual machine:
+
+```
+--device virtio-input,keyboard
+```
+
+This adds a virtio-input pointing device (mouse) to a virtual machine:
+
+```
+--device virtio-input,pointing
+```
+
+To enable full keyboard and mouse support for GUI workloads, both devices should be specified:
+
+```
+--device virtio-input,keyboard --device virtio-input,pointing
+```
+
 ## Restful Service
 
 Recall that the RESTful service is started at the address specified in the `--restful-uri` argument (or
