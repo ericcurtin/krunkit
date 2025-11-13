@@ -688,4 +688,54 @@ mod tests {
         assert_eq!(args.gui, true);
         assert_eq!(args.krun_log_level, Some(5));
     }
+
+    #[test]
+    fn run_subcommand_parsing() {
+        use super::*;
+
+        let cmdline = vec![
+            "krunkit",
+            "--cpus",
+            "4",
+            "--memory",
+            "8192",
+            "run",
+            "quay.io/fedora/fedora-bootc",
+        ];
+
+        let args = Args::try_parse_from(cmdline).unwrap();
+
+        assert_eq!(args.cpus, 4);
+        assert_eq!(args.memory, 8192);
+        
+        match args.command {
+            Some(Command::Run { image }) => {
+                assert_eq!(image, "quay.io/fedora/fedora-bootc");
+            }
+            None => panic!("expected run command"),
+        }
+    }
+
+    #[test]
+    fn run_subcommand_with_defaults() {
+        use super::*;
+
+        let cmdline = vec![
+            "krunkit",
+            "run",
+            "quay.io/fedora/fedora-bootc:41",
+        ];
+
+        let args = Args::try_parse_from(cmdline).unwrap();
+
+        assert_eq!(args.cpus, 2); // default
+        assert_eq!(args.memory, 4096); // default
+        
+        match args.command {
+            Some(Command::Run { image }) => {
+                assert_eq!(image, "quay.io/fedora/fedora-bootc:41");
+            }
+            None => panic!("expected run command"),
+        }
+    }
 }
