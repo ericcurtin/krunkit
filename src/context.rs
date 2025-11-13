@@ -70,6 +70,66 @@ pub const KRUN_LOG_OPTION_NO_ENV: u32 = 1;
 
 const QCOW_MAGIC: [u8; 4] = [0x51, 0x46, 0x49, 0xfb];
 
+/// Convert a bootc container image to a disk image that can be booted.
+/// Returns the path to the created disk image.
+fn convert_bootc_image(image_ref: &str) -> Result<String, anyhow::Error> {
+    // Create a path for the disk image
+    let disk_image_path = format!("/tmp/krunkit-bootc-{}.raw", 
+        image_ref.replace(['/', ':', '.'], "-"));
+    
+    log::info!("Converting bootc image {} to disk image", image_ref);
+    
+    // Pull the container image using podman
+    log::info!("Pulling container image...");
+    let pull_output = Command::new("podman")
+        .arg("pull")
+        .arg(image_ref)
+        .output()
+        .context("Failed to execute podman pull")?;
+    
+    if !pull_output.status.success() {
+        return Err(anyhow!(
+            "Failed to pull image: {}",
+            String::from_utf8_lossy(&pull_output.stderr)
+        ));
+    }
+    
+    log::info!("Creating bootable disk image using bootc install...");
+    
+    // Try to use bootc install to create a bootable disk image
+    // This requires the bootc image to have the bootc tool installed
+    let output = Command::new("podman")
+        .arg("run")
+        .arg("--rm")
+        .arg("--privileged")
+        .arg("--pid=host")
+        .arg("-v")
+        .arg("/dev:/dev")
+        .arg("-v")
+        .arg("/tmp:/output")
+        .arg("--security-opt")
+        .arg("label=type:unconfined_t")
+        .arg(image_ref)
+        .arg("bootc")
+        .arg("install")
+        .arg("to-disk")
+        .arg("--generic-image")
+        .arg(&format!("/output/{}", 
+            disk_image_path.split('/').last().unwrap()))
+        .output()
+        .context("Failed to run bootc install")?;
+    
+    if output.status.success() {
+        log::info!("Successfully created bootc disk image at {}", disk_image_path);
+        Ok(disk_image_path)
+    } else {
+        Err(anyhow!(
+            "Failed to create bootc disk image: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
 fn get_image_format(disk_image: String) -> Result<DiskImageFormat, io::Error> {
     let mut file = File::open(disk_image)?;
 
@@ -176,7 +236,19 @@ impl TryFrom<Args> for KrunContext {
             return Err(anyhow!("unable to set krun vCPU/RAM configuration"));
         }
 
-        if let Some(ref disk_image) = args.disk_image {
+        // Handle disk image setup based on command type
+        let disk_image = if let Some(ref cmd) = args.command {
+            match cmd {
+                crate::cmdline::Command::Run { image } => {
+                    // Convert bootc container image to disk image
+                    Some(convert_bootc_image(image)?)
+                }
+            }
+        } else {
+            args.disk_image.clone()
+        };
+
+        if let Some(ref disk_image) = disk_image {
             let image_format = get_image_format(disk_image.to_string())?;
 
             if unsafe {

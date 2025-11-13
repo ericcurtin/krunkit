@@ -10,7 +10,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 /// Command line arguments to configure a krun VM.
 #[derive(Clone, Debug, Parser)]
@@ -60,8 +60,20 @@ pub struct Args {
     #[arg(long = "log-file")]
     pub log_file: Option<PathBuf>,
 
-    /// Disk image for easy mode.
+    #[command(subcommand)]
+    pub command: Option<Command>,
+
+    /// Disk image for easy mode (deprecated, use 'run' subcommand).
     pub disk_image: Option<String>,
+}
+
+#[derive(Clone, Debug, Subcommand)]
+pub enum Command {
+    /// Run a bootc container image as a VM
+    Run {
+        /// Container image reference (e.g., quay.io/fedora/fedora-bootc)
+        image: String,
+    },
 }
 
 /// Parse the input string into a hash map of key value pairs, associating the argument with its
