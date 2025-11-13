@@ -126,6 +126,10 @@ async fn pull_and_extract_oci_image(image_ref: &str, disk_path: &str) -> Result<
             .context(format!("Failed to extract layer {}", idx))?;
     }
     
+    // Configure auto-login as root
+    log::info!("Configuring auto-login for root user...");
+    configure_auto_login(extract_dir)?;
+    
     log::info!("Creating disk image from extracted filesystem...");
     
     // Create a raw disk image (10GB)
@@ -135,6 +139,61 @@ async fn pull_and_extract_oci_image(image_ref: &str, disk_path: &str) -> Result<
     let _ = std::fs::remove_dir_all(extract_dir);
     
     log::info!("Successfully created disk image at {}", disk_path);
+    Ok(())
+}
+
+/// Configure auto-login for root user in the extracted filesystem.
+fn configure_auto_login(rootfs_dir: &str) -> Result<(), anyhow::Error> {
+    use std::fs;
+    use std::io::Write;
+    use std::path::Path;
+    
+    // Configure systemd to auto-login as root on ttyS0 (serial console)
+    let getty_override_dir = format!("{}/etc/systemd/system/serial-getty@ttyS0.service.d", rootfs_dir);
+    
+    if let Ok(_) = fs::create_dir_all(&getty_override_dir) {
+        let override_file = format!("{}/autologin.conf", getty_override_dir);
+        if let Ok(mut file) = fs::File::create(&override_file) {
+            let content = "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin root --noclear %I $TERM\n";
+            let _ = file.write_all(content.as_bytes());
+            log::info!("Configured serial console auto-login");
+        }
+    }
+    
+    // Also configure tty1 (console) for auto-login
+    let console_getty_override_dir = format!("{}/etc/systemd/system/getty@tty1.service.d", rootfs_dir);
+    
+    if let Ok(_) = fs::create_dir_all(&console_getty_override_dir) {
+        let override_file = format!("{}/autologin.conf", console_getty_override_dir);
+        if let Ok(mut file) = fs::File::create(&override_file) {
+            let content = "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin root --noclear %I $TERM\n";
+            let _ = file.write_all(content.as_bytes());
+            log::info!("Configured console auto-login");
+        }
+    }
+    
+    // Set a simple root password (empty) or configure passwordless login
+    // Modify /etc/shadow to allow passwordless root login
+    let shadow_path = format!("{}/etc/shadow", rootfs_dir);
+    if Path::new(&shadow_path).exists() {
+        if let Ok(content) = fs::read_to_string(&shadow_path) {
+            let modified = content.lines()
+                .map(|line| {
+                    if line.starts_with("root:") {
+                        // Set empty password for root
+                        "root::19000:0:99999:7:::".to_string()
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join("\n");
+            
+            let _ = fs::write(&shadow_path, modified);
+            log::info!("Configured passwordless root login");
+        }
+    }
+    
     Ok(())
 }
 
