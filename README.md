@@ -26,6 +26,16 @@ $ sudo make install
 
 ## Usage
 
-See [`docs/usage.md`](./docs/usage.md).
+See [`docs/usage.md`](./docs/usage.md) for detailed documentation.
+
+### Quick Start - Running Bootc Images
+
+`krunkit` can run bootc container images directly:
+
+```bash
+$ krunkit run quay.io/fedora/fedora-bootc
+```
+
+This will pull the bootc image, configure it for auto-login as root, and launch a VM with a bash prompt.
 
 License: Apache-2.0
