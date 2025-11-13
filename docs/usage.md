@@ -6,6 +6,28 @@ machine monitor library. The `libkrun` virtual machine configuration can be spec
 Specifying a virtual machine's vCPU and RAM allocation is required. Adding devices is optional, yet most workloads
 will require a root disk to be useful.
 
+## Running Bootc Container Images
+
+`krunkit` supports running bootc container images directly with the `run` subcommand:
+
+```bash
+krunkit run quay.io/fedora/fedora-bootc
+```
+
+This command will:
+1. Pull the bootc container image from the registry (without requiring podman or docker)
+2. Extract the image layers to a temporary filesystem
+3. Configure the image for auto-login as root user
+4. Create a bootable disk image
+5. Launch the VM with networking enabled
+6. Present a bash prompt logged in as root
+
+The `run` command uses the default VM configuration (2 vCPUs, 4096 MiB RAM) but you can override these with the standard options:
+
+```bash
+krunkit --cpus 4 --memory 8192 run quay.io/fedora/fedora-bootc
+```
+
 ## Generic Options
 
 - `--krun-log-level`

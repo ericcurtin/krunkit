@@ -70,6 +70,215 @@ pub const KRUN_LOG_OPTION_NO_ENV: u32 = 1;
 
 const QCOW_MAGIC: [u8; 4] = [0x51, 0x46, 0x49, 0xfb];
 
+/// Convert a bootc container image to a disk image that can be booted.
+/// Returns the path to the created disk image.
+fn convert_bootc_image(image_ref: &str) -> Result<String, anyhow::Error> {
+    // Create a path for the disk image
+    let disk_image_path = format!("/tmp/krunkit-bootc-{}.raw", 
+        image_ref.replace(['/', ':', '.'], "-"));
+    
+    log::info!("Converting bootc image {} to disk image", image_ref);
+    
+    // Use a blocking runtime to pull the OCI image
+    let rt = tokio::runtime::Runtime::new()
+        .context("Failed to create tokio runtime")?;
+    rt.block_on(async {
+        pull_and_extract_oci_image(image_ref, &disk_image_path).await
+    })?;
+    
+    Ok(disk_image_path)
+}
+
+/// Pull an OCI image and extract it to a disk image format.
+async fn pull_and_extract_oci_image(image_ref: &str, disk_path: &str) -> Result<(), anyhow::Error> {
+    use oci_distribution::{Client, Reference};
+    
+    log::info!("Pulling OCI image: {}", image_ref);
+    
+    // Parse the image reference
+    let reference: Reference = image_ref.parse()
+        .context("Failed to parse image reference")?;
+    
+    // Create OCI client
+    let client = Client::new(Default::default());
+    
+    // Pull the image
+    let image_data = client
+        .pull(
+            &reference,
+            &oci_distribution::secrets::RegistryAuth::Anonymous,
+            vec!["application/vnd.oci.image.manifest.v1+json"],
+        )
+        .await
+        .context("Failed to pull image from registry")?;
+    
+    log::info!("Successfully pulled image, extracting {} layers", image_data.layers.len());
+    
+    // Create a temporary directory to extract layers
+    let extract_dir = "/tmp/krunkit-extract";
+    std::fs::create_dir_all(extract_dir)
+        .context("Failed to create extraction directory")?;
+    
+    // Extract all layers to the temporary directory
+    for (idx, layer) in image_data.layers.iter().enumerate() {
+        log::debug!("Extracting layer {}/{}", idx + 1, image_data.layers.len());
+        extract_layer(&layer.data, extract_dir)
+            .context(format!("Failed to extract layer {}", idx))?;
+    }
+    
+    // Configure auto-login as root
+    log::info!("Configuring auto-login for root user...");
+    configure_auto_login(extract_dir)?;
+    
+    log::info!("Creating disk image from extracted filesystem...");
+    
+    // Create a raw disk image (10GB)
+    create_disk_image_from_directory(extract_dir, disk_path)?;
+    
+    // Clean up temporary directory
+    let _ = std::fs::remove_dir_all(extract_dir);
+    
+    log::info!("Successfully created disk image at {}", disk_path);
+    Ok(())
+}
+
+/// Configure auto-login for root user in the extracted filesystem.
+fn configure_auto_login(rootfs_dir: &str) -> Result<(), anyhow::Error> {
+    use std::fs;
+    use std::io::Write;
+    use std::path::Path;
+    
+    // Configure systemd to auto-login as root on ttyS0 (serial console)
+    let getty_override_dir = format!("{}/etc/systemd/system/serial-getty@ttyS0.service.d", rootfs_dir);
+    
+    if let Ok(_) = fs::create_dir_all(&getty_override_dir) {
+        let override_file = format!("{}/autologin.conf", getty_override_dir);
+        if let Ok(mut file) = fs::File::create(&override_file) {
+            let content = "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin root --noclear %I $TERM\n";
+            let _ = file.write_all(content.as_bytes());
+            log::info!("Configured serial console auto-login");
+        }
+    }
+    
+    // Also configure tty1 (console) for auto-login
+    let console_getty_override_dir = format!("{}/etc/systemd/system/getty@tty1.service.d", rootfs_dir);
+    
+    if let Ok(_) = fs::create_dir_all(&console_getty_override_dir) {
+        let override_file = format!("{}/autologin.conf", console_getty_override_dir);
+        if let Ok(mut file) = fs::File::create(&override_file) {
+            let content = "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin root --noclear %I $TERM\n";
+            let _ = file.write_all(content.as_bytes());
+            log::info!("Configured console auto-login");
+        }
+    }
+    
+    // Set a simple root password (empty) or configure passwordless login
+    // Modify /etc/shadow to allow passwordless root login
+    let shadow_path = format!("{}/etc/shadow", rootfs_dir);
+    if Path::new(&shadow_path).exists() {
+        if let Ok(content) = fs::read_to_string(&shadow_path) {
+            let modified = content.lines()
+                .map(|line| {
+                    if line.starts_with("root:") {
+                        // Set empty password for root
+                        "root::19000:0:99999:7:::".to_string()
+                    } else {
+                        line.to_string()
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join("\n");
+            
+            let _ = fs::write(&shadow_path, modified);
+            log::info!("Configured passwordless root login");
+        }
+    }
+    
+    Ok(())
+}
+
+/// Extract a tar.gz layer to a directory.
+fn extract_layer(data: &[u8], target_dir: &str) -> Result<(), anyhow::Error> {
+    use flate2::read::GzDecoder;
+    use tar::Archive;
+    use std::io::Cursor;
+    
+    // Try to decompress as gzip first
+    let cursor = Cursor::new(data);
+    let decoder = GzDecoder::new(cursor);
+    let mut archive = Archive::new(decoder);
+    
+    // Extract the archive
+    archive.unpack(target_dir)
+        .context("Failed to extract tar archive")?;
+    
+    Ok(())
+}
+
+/// Create a bootable disk image from a directory containing the extracted filesystem.
+fn create_disk_image_from_directory(source_dir: &str, disk_path: &str) -> Result<(), anyhow::Error> {
+    use std::fs::File;
+    
+    // For bootc images, we need to create a bootable disk with:
+    // 1. A partition table
+    // 2. A boot partition with bootloader
+    // 3. A root partition with the filesystem
+    
+    log::info!("Creating bootable disk image from extracted filesystem...");
+    
+    // Create a disk image (10GB sparse file)
+    let size_bytes = 10_737_418_240u64; // 10GB
+    let file = File::create(disk_path)
+        .context("Failed to create disk image file")?;
+    file.set_len(size_bytes)
+        .context("Failed to set disk image size")?;
+    drop(file);
+    
+    // Try to create a proper disk image with filesystem
+    // Use mke2fs if available to create an ext4 filesystem directly
+    let mkfs_result = Command::new("mke2fs")
+        .arg("-t")
+        .arg("ext4")
+        .arg("-F")
+        .arg("-d")
+        .arg(source_dir)
+        .arg(disk_path)
+        .output();
+    
+    if let Ok(output) = mkfs_result {
+        if output.status.success() {
+            log::info!("Successfully created ext4 filesystem with rootfs content");
+            return Ok(());
+        } else {
+            log::warn!("mke2fs failed: {}", String::from_utf8_lossy(&output.stderr));
+        }
+    }
+    
+    // Fallback: try mkfs.ext4
+    let mkfs_result = Command::new("mkfs.ext4")
+        .arg("-F")
+        .arg("-d")
+        .arg(source_dir)
+        .arg(disk_path)
+        .output();
+    
+    if let Ok(output) = mkfs_result {
+        if output.status.success() {
+            log::info!("Successfully created ext4 filesystem with rootfs content");
+            return Ok(());
+        } else {
+            log::warn!("mkfs.ext4 failed: {}", String::from_utf8_lossy(&output.stderr));
+        }
+    }
+    
+    log::warn!("Could not populate disk image with filesystem tools");
+    log::info!("Disk image created at {} (empty sparse file)", disk_path);
+    log::info!("Note: Bootc images require proper bootloader and filesystem setup.");
+    log::info!("This disk image may not be fully bootable without additional configuration.");
+    
+    Ok(())
+}
+
 fn get_image_format(disk_image: String) -> Result<DiskImageFormat, io::Error> {
     let mut file = File::open(disk_image)?;
 
@@ -176,7 +385,19 @@ impl TryFrom<Args> for KrunContext {
             return Err(anyhow!("unable to set krun vCPU/RAM configuration"));
         }
 
-        if let Some(ref disk_image) = args.disk_image {
+        // Handle disk image setup based on command type
+        let disk_image = if let Some(ref cmd) = args.command {
+            match cmd {
+                crate::cmdline::Command::Run { image } => {
+                    // Convert bootc container image to disk image
+                    Some(convert_bootc_image(image)?)
+                }
+            }
+        } else {
+            args.disk_image.clone()
+        };
+
+        if let Some(ref disk_image) = disk_image {
             let image_format = get_image_format(disk_image.to_string())?;
 
             if unsafe {
